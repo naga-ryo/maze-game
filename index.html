@@ -277,6 +277,15 @@
 
         resetBtn.addEventListener('click', resetGame);
         setup();
+
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault(); // 0.3秒以内の連続タップを無視
+            }
+            lastTouchEnd = now;
+        }, false);
     </script>
 </body>
 </html>
