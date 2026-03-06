@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAZE</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #121212;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 10px;
+        }
+        h1 { color: #f1c40f; margin-bottom: 5px; font-size: 24px; }
+        p { color: #888; margin-bottom: 5px; font-size: 14px; }
+        #game-container {
+            position: relative;
+            width: 95%;
+            max-width: 70dvh;
+            height: auto;
+            background-color: #000;
+            padding: 5px;
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+        canvas { display: block; border-radius: 4px; width: 100%; }
+        /* 操作系 */
+        .ui-panel {
+            width: 100%; padding: 5px 0;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .d-pad {
+            display: grid; grid-template-columns: repeat(3, 65px);
+            grid-template-rows: repeat(2, 65px); gap: 8px;
+        }
+        .btn {
+            width: 65px; height: 65px; background: #222;
+            border: 1px solid #444; border-radius: 10px;
+            color: var(--primary); font-size: 24px;
+            display: flex; align-items: center; justify-content: center;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn:active { background: #333; transform: scale(0.95); }
+        .up { grid-column: 2; }
+        .left { grid-column: 1; grid-row: 2; }
+        .down { grid-column: 2; grid-row: 2; }
+        .right { grid-column: 3; grid-row: 2; }
+        #message {
+            margin-top: 5px;
+            font-size: 22px;
+            font-weight: bold;
+            color: #2ecc71;
+            height: 30px;
+        }
+        button {
+            margin-bottom: 10px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #000;
+            background-color: #f1c40f;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #d35400;
+        }
+        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d35400; }
+    </style>
+</head>
+<body>
+
+    <h1>MAZE</h1>
+    <p>全容を解明してゴールへ！</p>
+
+    <div id="game-container">
+        <canvas id="mazeCanvas"></canvas>
+    </div>
+
+    <div class="ui-panel">
+        <div class="d-pad">
+            <div class="btn up" id="u">▲</div>
+            <div class="btn left" id="l">◀</div>
+            <div class="btn down" id="d">▼</div>
+            <div class="btn right" id="r">▶</div>
+        </div>
+    </div>
+
+    <div id="message"></div>
+    <button id="resetBtn">新しい迷路を生成</button>
+
+    <script>
+        const canvas = document.getElementById('mazeCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageEl = document.getElementById('message');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // 設定
+        const cols = 61; 
+        const rows = 61;
+        const cellSize = 10;
+        const lightRadius = 4; // 現在の視界（明るい）
+
+        canvas.width = cols * cellSize;
+        canvas.height = rows * cellSize;
+
+        let maze = [];
+        let discovered = []; // ★探索済みフラグを保持する配列
+        let player = { x: 1, y: 1 };
+        let goal = { x: cols - 2, y: rows - 2 };
+        let isGameOver = false;
+
+        // 初期化
+        function initGameData() {
+            maze = [];
+            discovered = [];
+            for (let y = 0; y < rows; y++) {
+                maze[y] = new Array(cols).fill(1);
+                discovered[y] = new Array(cols).fill(false); // 最初はすべて未探索
+            }
+        }
+
+        // 迷路生成（穴掘り法）
+        function generateMaze(x, y) {
+            maze[y][x] = 0;
+            const dirs = [{dx:0,dy:-2},{dx:2,dy:0},{dx:0,dy:2},{dx:-2,dy:0}].sort(()=>Math.random()-0.5);
+            for(let d of dirs){
+                let nx=x+d.dx, ny=y+d.dy;
+                if(nx>0 && nx<cols-1 && ny>0 && ny<rows-1 && maze[ny][nx]===1){
+                    maze[y+d.dy/2][x+d.dx/2] = 0;
+                    generateMaze(nx, ny);
+                }
+            }
+        }
+
+        // ★視界の更新：プレイヤーの周囲を「既読」にする
+        function updateDiscovery() {
+            for (let dy = -lightRadius; dy <= lightRadius; dy++) {
+                for (let dx = -lightRadius; dx <= lightRadius; dx++) {
+                    let nx = player.x + dx;
+                    let ny = player.y + dy;
+                    if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+                        // 円形に近い視界にするための距離判定
+                        if (Math.sqrt(dx*dx + dy*dy) <= lightRadius) {
+                            discovered[ny][nx] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            if (isGameOver) return;
+            ctx.fillStyle = "#000"; // 未踏の地は真っ暗
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (discovered[y][x]) {
+                        // ★探索済みのエリアを描画
+                        let dist = Math.sqrt(Math.pow(x-player.x, 2) + Math.pow(y-player.y, 2));
+                        
+                        if (dist <= lightRadius) {
+                            // 現在の視界内（明るい）
+                            ctx.fillStyle = maze[y][x] === 1 ? "#34495e" : "#ecf0f1";
+                        } else {
+                            // 探索済みだが離れている場所（少し暗い）
+                            ctx.fillStyle = "#000";
+                        }
+                        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+
+            // ゴール（常に表示）
+            ctx.fillStyle = "#2ecc71";
+            ctx.fillRect(goal.x * cellSize, goal.y * cellSize, cellSize, cellSize);
+
+            // プレイヤー
+            ctx.fillStyle = "#e74c3c";
+            ctx.beginPath();
+            ctx.arc(player.x * cellSize + cellSize/2, player.y * cellSize + cellSize/2, cellSize/2.5, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        // ゴール演出（紙吹雪）
+        let particles = [];
+        function createConfetti() {
+            for(let i=0; i<150; i++) {
+                particles.push({
+                    x: Math.random()*canvas.width,
+                    y: Math.random()*canvas.height - canvas.height,
+                    size: Math.random()*6+2,
+                    color: `hsl(${Math.random()*360}, 70%, 60%)`,
+                    v: Math.random()*3+2
+                });
+            }
+        }
+
+        function animateWin() {
+            ctx.fillStyle = "rgba(0,0,0,0.1)";
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+            
+            // 迷路の全容をうっすら表示
+            ctx.globalAlpha = 0.2;
+            for(let y=0; y<rows; y++) {
+                for(let x=0; x<cols; x++) {
+                    ctx.fillStyle = maze[y][x]===1 ? "#34495e" : "#ecf0f1";
+                    ctx.fillRect(x*cellSize, y*cellSize, cellSize, cellSize);
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            particles.forEach(p => {
+                p.y += p.v;
+                if(p.y > canvas.height) p.y = -10;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            });
+            requestAnimationFrame(animateWin);
+        }
+
+        function movePlayer(dx, dy) {
+            if (isGameOver) return;
+            let nx = player.x + dx, ny = player.y + dy;
+            if (maze[ny][nx] === 0) {
+                player.x = nx; player.y = ny;
+                updateDiscovery();
+                draw();
+                if (player.x === goal.x && player.y === goal.y) {
+                    isGameOver = true;
+                    messageEl.innerText = "🚩 MISSION COMPLETE!";
+                    createConfetti();
+                    animateWin();
+                }
+            }
+        }
+
+        // コントローラー
+        const bind = (id, dx, dy) => {
+            const el = document.getElementById(id);
+            const handler = (e) => { e.preventDefault(); movePlayer(dx, dy); };
+            el.addEventListener('pointerdown', handler);
+        };
+        bind('u', 0, -1); bind('d', 0, 1); bind('l', -1, 0); bind('r', 1, 0);
+
+        window.addEventListener('keydown', (e) => {
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+            if(e.code==='ArrowUp') movePlayer(0,-1);
+            if(e.code==='ArrowDown') movePlayer(0,1);
+            if(e.code==='ArrowLeft') movePlayer(-1,0);
+            if(e.code==='ArrowRight') movePlayer(1,0);
+        });
+
+        function setup() {
+            isGameOver = false;
+            messageEl.innerText = "";
+            initGameData();
+            generateMaze(1, 1);
+            updateDiscovery();
+            draw();
+        }
+
+        function resetGame() {
+            player.x = 1; player.y = 1;
+            updateDiscovery();
+            draw();
+            setup();
+        }
+
+        resetBtn.addEventListener('click', resetGame);
+        setup();
+    </script>
+</body>
+</html>
