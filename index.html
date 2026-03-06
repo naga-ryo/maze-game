@@ -28,11 +28,12 @@
             border: 2px solid #333;
             border-radius: 8px;
         }
-        canvas { display: block; border-radius: 4px; width: 100%; }
+        canvas { display: block; border-radius: 4px; width: 100%; touch-action: manipulation; }
         /* 操作系 */
         .ui-panel {
             width: 100%; padding: 5px 0;
             display: flex; flex-direction: column; align-items: center;
+            touch-action: manipulation;
         }
         .d-pad {
             display: grid; grid-template-columns: repeat(3, 65px);
@@ -44,6 +45,7 @@
             color: var(--primary); font-size: 24px;
             display: flex; align-items: center; justify-content: center;
             -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
         .btn:active { background: #333; transform: scale(0.95); }
         .up { grid-column: 2; }
@@ -68,6 +70,7 @@
             border-radius: 30px;
             cursor: pointer;
             box-shadow: 0 4px 0 #d35400;
+            touch-action: manipulation;
         }
         button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d35400; }
     </style>
