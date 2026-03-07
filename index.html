@@ -127,15 +127,41 @@
             }
         }
 
-        // 迷路生成（穴掘り法）
-        function generateMaze(x, y) {
-            maze[y][x] = 0;
-            const dirs = [{dx:0,dy:-2},{dx:2,dy:0},{dx:0,dy:2},{dx:-2,dy:0}].sort(()=>Math.random()-0.5);
-            for(let d of dirs){
-                let nx=x+d.dx, ny=y+d.dy;
-                if(nx>0 && nx<cols-1 && ny>0 && ny<rows-1 && maze[ny][nx]===1){
-                    maze[y+d.dy/2][x+d.dx/2] = 0;
-                    generateMaze(nx, ny);
+        // 迷路生成（プリム法：分岐と行き止まりが多くなる）
+        function generateMaze(startX, startY) {
+            maze[startY][startX] = 0;
+            let wallList = [];
+
+            // 周囲の掘削候補をリストに追加する関数
+            const addWalls = (x, y) => {
+                const dirs = [{dx: 0, dy: -2}, {dx: 2, dy: 0}, {dx: 0, dy: 2}, {dx: -2, dy: 0}];
+                for (let d of dirs) {
+                    let nx = x + d.dx, ny = y + d.dy;
+                    // 2マス先が迷路の範囲内で、かつ壁(1)である場合のみ候補に追加
+                    if (nx > 0 && nx < cols - 1 && ny > 0 && ny < rows - 1 && maze[ny][nx] === 1) {
+                        wallList.push({ nx: nx, ny: ny, px: x, py: y });
+                    }
+                }
+            };
+
+            // 最初の位置から候補を追加
+            addWalls(startX, startY);
+
+            // 候補がなくなるまで繰り返す
+            while (wallList.length > 0) {
+                // リストからランダムに候補を1つ選ぶ
+                let randomIndex = Math.floor(Math.random() * wallList.length);
+                let wall = wallList[randomIndex];
+                // 選んだ要素をリストから削除
+                wallList.splice(randomIndex, 1);
+
+                // 候補の先がまだ壁(1)であれば、そこを通路にして繋ぐ
+                if (maze[wall.ny][wall.nx] === 1) {
+                    maze[wall.ny][wall.nx] = 0; // 先を通路に
+                    maze[(wall.ny + wall.py) / 2][(wall.nx + wall.px) / 2] = 0; // 間の壁を通路に
+                    
+                    // 新たに開通した通路から、さらに候補を追加
+                    addWalls(wall.nx, wall.ny);
                 }
             }
         }
