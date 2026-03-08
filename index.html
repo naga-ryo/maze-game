@@ -5,80 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MAZE</title>
     <style>
+        * {
+            /* iOSでの不要なズームやハイライトを防止 */
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
             background-color: #121212;
             color: #eee;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: 0;
-            padding: 10px;
-            touch-action: manipulation;
+            display: flex; flex-direction: column; align-items: center;
+            margin: 0; padding: 10px;
+            overscroll-behavior: none; /* スワイプによるリロード防止 */
         }
         h1 { color: #f1c40f; margin-bottom: 5px; font-size: 24px; }
-        p { color: #888; margin-bottom: 5px; font-size: 14px; }
+        p { color: #888; margin-bottom: 5px; font-size: 14px; text-align: center; }
+        .legend { font-size: 12px; color: #ccc; margin-bottom: 10px; }
         #game-container {
-            position: relative;
-            width: 95%;
-            max-width: 70dvh;
-            height: auto;
-            background-color: #000;
-            padding: 5px;
-            border: 2px solid #333;
-            border-radius: 8px;
+            position: relative; width: 95%; max-width: 60dvh; height: auto;
+            background-color: #000; padding: 5px; border: 2px solid #333; border-radius: 8px;
         }
-        canvas { display: block; border-radius: 4px; width: 100%; touch-action: manipulation; }
-        /* 操作系 */
+        canvas { display: block; border-radius: 4px; width: 100%; image-rendering: pixelated; }
         .ui-panel {
-            width: 100%; padding: 5px 0;
+            width: 100%; padding: 10px 0;
             display: flex; flex-direction: column; align-items: center;
-            touch-action: manipulation;
         }
         .d-pad {
-            display: grid; grid-template-columns: repeat(3, 65px);
-            grid-template-rows: repeat(2, 65px); gap: 8px;
+            display: grid; grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(2, 60px); gap: 10px;
         }
         .btn {
-            width: 65px; height: 65px; background: #222;
-            border: 1px solid #444; border-radius: 10px;
-            color: var(--primary); font-size: 24px;
-            display: flex; align-items: center; justify-content: center;
-            -webkit-tap-highlight-color: transparent;
-            touch-action: manipulation;
+            width: 60px; height: 60px; background: #222; border: 1px solid #444; border-radius: 12px;
+            color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center;
+            user-select: none; cursor: pointer;
         }
-        .btn:active { background: #333; transform: scale(0.95); }
-        .up { grid-column: 2; }
-        .left { grid-column: 1; grid-row: 2; }
-        .down { grid-column: 2; grid-row: 2; }
-        .right { grid-column: 3; grid-row: 2; }
-        #message {
-            margin-top: 5px;
-            font-size: 22px;
-            font-weight: bold;
-            color: #2ecc71;
-            height: 30px;
-        }
+        .btn:active { background: #444; transform: scale(0.95); }
+        .up { grid-column: 2; } .left { grid-column: 1; grid-row: 2; }
+        .down { grid-column: 2; grid-row: 2; } .right { grid-column: 3; grid-row: 2; }
+        
+        #message { margin-top: 5px; font-size: 18px; font-weight: bold; color: #2ecc71; height: 25px; transition: 0.3s; }
         button {
-            margin-bottom: 10px;
-            padding: 12px 24px;
-            font-size: 16px;
-            font-weight: bold;
-            color: #000;
-            background-color: #f1c40f;
-            border: none;
-            border-radius: 30px;
-            cursor: pointer;
-            box-shadow: 0 4px 0 #d35400;
-            touch-action: manipulation;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 12px 24px; font-size: 16px; font-weight: bold;
+            color: #000; background-color: #f1c40f; border: none; border-radius: 30px;
+            cursor: pointer; box-shadow: 0 4px 0 #d35400; display: none;
         }
-        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d35400; }
     </style>
 </head>
 <body>
 
     <h1>MAZE</h1>
-    <p>全容を解明してゴールへ！</p>
+    <p>アイテムを駆使してゴールを目指せ！</p>
+    <div class="legend">
+        🟡太陽の雫(5秒全表示) / 🔵ランタン(視界+2) / 🟣星の砂(10秒視界拡大)
+    </div>
 
     <div id="game-container">
         <canvas id="mazeCanvas"></canvas>
@@ -94,7 +73,7 @@
     </div>
 
     <div id="message"></div>
-    <button id="resetBtn">新しい迷路を生成</button>
+    <button id="resetBtn">さらに巨大な迷路に挑戦</button>
 
     <script>
         const canvas = document.getElementById('mazeCanvas');
@@ -102,139 +81,252 @@
         const messageEl = document.getElementById('message');
         const resetBtn = document.getElementById('resetBtn');
 
-        // 設定
-        const cols = 61; 
-        const rows = 61;
+        let cols = 21, rows = 21;
         const cellSize = 10;
-        const lightRadius = 4; // 現在の視界（明るい）
+        let baseLightRadius = 4;
+        let currentLightRadius = baseLightRadius;
 
-        canvas.width = cols * cellSize;
-        canvas.height = rows * cellSize;
-
-        let maze = [];
-        let discovered = []; // ★探索済みフラグを保持する配列
+        let maze = [], items = [];
         let player = { x: 1, y: 1 };
         let goal = { x: cols - 2, y: rows - 2 };
-        let isGameOver = false;
+        
+        let gameState = 'PLAYING'; 
+        let flareTimer = 0; // 太陽の雫の残り時間(ms)
+        let starTimer = 0;  // 星の砂の残り時間(ms)
+        let lastTime = 0;
+        let msgTimeout;
 
-        // 初期化
+        const ITEM_TYPES = {
+            FLARE:   { color: '#f1c40f', symbol: '☀️', name: '太陽の雫', desc: '5秒間、迷路の全貌が見える！' },
+            LANTERN: { color: '#00cec9', symbol: '🔦', name: 'ランタン', desc: '視界が永続的に広がった！' },
+            STAR:    { color: '#9b59b6', symbol: '✨', name: '星の砂', desc: '10秒間、周囲の視界が大きく広がる！' }
+        };
+
+        // iPhoneのダブルタップズーム防止処理
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = window.performance.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+        
+        // ダブルクリックイベントも防止
+        document.addEventListener('dblclick', (event) => {
+            event.preventDefault();
+        }, { passive: false });
+
+        function showMessage(text, color = "#2ecc71") {
+            messageEl.style.color = color;
+            messageEl.innerText = text;
+            clearTimeout(msgTimeout);
+            msgTimeout = setTimeout(() => { messageEl.innerText = ""; }, 3000);
+        }
+
         function initGameData() {
-            maze = [];
-            discovered = [];
+            canvas.width = cols * cellSize;
+            canvas.height = rows * cellSize;
+            maze = []; items = [];
+            currentLightRadius = baseLightRadius;
             for (let y = 0; y < rows; y++) {
                 maze[y] = new Array(cols).fill(1);
-                discovered[y] = new Array(cols).fill(false); // 最初はすべて未探索
             }
         }
 
-        // 迷路生成（プリム法：分岐と行き止まりが多くなる）
         function generateMaze(startX, startY) {
+            // 1. プリム法による生成
             maze[startY][startX] = 0;
             let wallList = [];
-
-            // 周囲の掘削候補をリストに追加する関数
             const addWalls = (x, y) => {
                 const dirs = [{dx: 0, dy: -2}, {dx: 2, dy: 0}, {dx: 0, dy: 2}, {dx: -2, dy: 0}];
                 for (let d of dirs) {
                     let nx = x + d.dx, ny = y + d.dy;
-                    // 2マス先が迷路の範囲内で、かつ壁(1)である場合のみ候補に追加
                     if (nx > 0 && nx < cols - 1 && ny > 0 && ny < rows - 1 && maze[ny][nx] === 1) {
-                        wallList.push({ nx: nx, ny: ny, px: x, py: y });
+                        wallList.push({ nx, ny, px: x, py: y });
                     }
                 }
             };
-
-            // 最初の位置から候補を追加
             addWalls(startX, startY);
 
-            // 候補がなくなるまで繰り返す
             while (wallList.length > 0) {
-                // リストからランダムに候補を1つ選ぶ
                 let randomIndex = Math.floor(Math.random() * wallList.length);
                 let wall = wallList[randomIndex];
-                // 選んだ要素をリストから削除
-                wallList.splice(randomIndex, 1);
+                wallList[randomIndex] = wallList[wallList.length - 1];
+                wallList.pop();
 
-                // 候補の先がまだ壁(1)であれば、そこを通路にして繋ぐ
                 if (maze[wall.ny][wall.nx] === 1) {
-                    maze[wall.ny][wall.nx] = 0; // 先を通路に
-                    maze[(wall.ny + wall.py) / 2][(wall.nx + wall.px) / 2] = 0; // 間の壁を通路に
-                    
-                    // 新たに開通した通路から、さらに候補を追加
+                    maze[wall.ny][wall.nx] = 0;
+                    maze[(wall.ny + wall.py) / 2][(wall.nx + wall.px) / 2] = 0;
                     addWalls(wall.nx, wall.ny);
                 }
             }
         }
 
-        // ★視界の更新：プレイヤーの周囲を「既読」にする
-        function updateDiscovery() {
-            for (let dy = -lightRadius; dy <= lightRadius; dy++) {
-                for (let dx = -lightRadius; dx <= lightRadius; dx++) {
-                    let nx = player.x + dx;
-                    let ny = player.y + dy;
-                    if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
-                        // 円形に近い視界にするための距離判定
-                        if (Math.sqrt(dx*dx + dy*dy) <= lightRadius) {
-                            discovered[ny][nx] = true;
-                        }
+        function placeItems() {
+            let deadEnds = [];
+            for (let y = 1; y < rows - 1; y++) {
+                for (let x = 1; x < cols - 1; x++) {
+                    if (maze[y][x] === 0 && (x !== 1 || y !== 1) && (x !== goal.x || y !== goal.y)) {
+                        let walls = 0;
+                        if (maze[y-1][x] === 1) walls++;
+                        if (maze[y+1][x] === 1) walls++;
+                        if (maze[y][x-1] === 1) walls++;
+                        if (maze[y][x+1] === 1) walls++;
+                        if (walls >= 3) deadEnds.push({x, y});
                     }
                 }
+            }
+            deadEnds.sort(() => Math.random() - 0.5);
+            let numItems = Math.min(deadEnds.length, Math.floor((cols + rows) / 10));
+            
+            const types = Object.keys(ITEM_TYPES);
+            for (let i = 0; i < numItems; i++) {
+                let type = types[Math.floor(Math.random() * types.length)];
+                items.push({ x: deadEnds[i].x, y: deadEnds[i].y, type: type });
             }
         }
 
         function draw() {
-            if (isGameOver) return;
-            ctx.fillStyle = "#000"; // 未踏の地は真っ暗
+            // 全体を黒で塗りつぶす（離れた道は真っ黒に戻る）
+            ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            let isFlareActive = flareTimer > 0;
+            // 星の砂が有効な場合は視界を一時的に拡張
+            let effectiveRadius = currentLightRadius + (starTimer > 0 ? 6 : 0);
 
             for (let y = 0; y < rows; y++) {
                 for (let x = 0; x < cols; x++) {
-                    if (discovered[y][x]) {
-                        // ★探索済みのエリアを描画
-                        let dist = Math.sqrt(Math.pow(x-player.x, 2) + Math.pow(y-player.y, 2));
-                        
-                        if (dist <= lightRadius) {
-                            // 現在の視界内（明るい）
-                            ctx.fillStyle = maze[y][x] === 1 ? "#34495e" : "#ecf0f1";
-                        } else {
-                            // 探索済みだが離れている場所（少し暗い）
-                            ctx.fillStyle = "#000";
-                        }
+                    let distSq = (x - player.x)**2 + (y - player.y)**2;
+                    let isVisible = isFlareActive || (distSq <= effectiveRadius * effectiveRadius);
+
+                    if (isVisible) {
+                        ctx.fillStyle = maze[y][x] === 1 ? "#34495e" : "#ecf0f1";
                         ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
                     }
                 }
             }
 
-            // ゴール（常に表示）
+            // ゴールは常に表示
             ctx.fillStyle = "#2ecc71";
             ctx.fillRect(goal.x * cellSize, goal.y * cellSize, cellSize, cellSize);
 
-            // プレイヤー
+            // アイテムの描画
+            items.forEach(item => {
+                let distSq = (item.x - player.x)**2 + (item.y - player.y)**2;
+                if (isFlareActive || distSq <= effectiveRadius * effectiveRadius) {
+                    ctx.fillStyle = ITEM_TYPES[item.type].color;
+                    ctx.beginPath();
+                    ctx.arc(item.x * cellSize + cellSize/2, item.y * cellSize + cellSize/2, cellSize/3, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            });
+
+            // プレイヤーの描画
             ctx.fillStyle = "#e74c3c";
             ctx.beginPath();
             ctx.arc(player.x * cellSize + cellSize/2, player.y * cellSize + cellSize/2, cellSize/2.5, 0, Math.PI*2);
             ctx.fill();
-        }
 
-        // ゴール演出（紙吹雪）
-        let particles = [];
-        function createConfetti() {
-            for(let i=0; i<150; i++) {
-                particles.push({
-                    x: Math.random()*canvas.width,
-                    y: Math.random()*canvas.height - canvas.height,
-                    size: Math.random()*6+2,
-                    color: `hsl(${Math.random()*360}, 70%, 60%)`,
-                    v: Math.random()*3+2
-                });
+            // 太陽の雫エフェクト
+            if (isFlareActive) {
+                ctx.strokeStyle = "rgba(241, 196, 15, 0.5)";
+                ctx.lineWidth = 10;
+                ctx.strokeRect(0, 0, canvas.width, canvas.height);
             }
         }
 
+        function gameLoop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            let dt = timestamp - lastTime;
+            lastTime = timestamp;
+
+            if (gameState === 'PLAYING') {
+                if (flareTimer > 0) {
+                    flareTimer -= dt;
+                    if (flareTimer < 0) flareTimer = 0;
+                }
+                if (starTimer > 0) {
+                    starTimer -= dt;
+                    if (starTimer < 0) starTimer = 0;
+                }
+                draw();
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function checkItem(nx, ny) {
+            let index = items.findIndex(i => i.x === nx && i.y === ny);
+            if (index !== -1) {
+                let item = items[index];
+                let info = ITEM_TYPES[item.type];
+                
+                if (item.type === 'FLARE') flareTimer = 5000;
+                else if (item.type === 'LANTERN') { currentLightRadius += 2; }
+                else if (item.type === 'STAR') { starTimer = 10000; }
+
+                showMessage(`${info.symbol} ${info.name}: ${info.desc}`, info.color);
+                items.splice(index, 1);
+            }
+        }
+
+        function movePlayer(dx, dy) {
+            if (gameState !== 'PLAYING') return;
+            let nx = player.x + dx, ny = player.y + dy;
+            
+            if (maze[ny] && maze[ny][nx] === 0) {
+                player.x = nx; player.y = ny;
+                checkItem(nx, ny);
+
+                if (player.x === goal.x && player.y === goal.y) {
+                    gameState = 'WON';
+                    showMessage("🚩 MISSION COMPLETE!");
+                    resetBtn.style.display = 'block';
+                    createConfetti();
+                    animateWin();
+                }
+            }
+        }
+
+        let moveInterval = null;
+        const bindPad = (id, dx, dy) => {
+            const el = document.getElementById(id);
+            const startMove = (e) => {
+                e.preventDefault();
+                movePlayer(dx, dy);
+                moveInterval = setInterval(() => movePlayer(dx, dy), 120);
+            };
+            const stopMove = () => clearInterval(moveInterval);
+            el.addEventListener('pointerdown', startMove);
+            window.addEventListener('pointerup', stopMove);
+            el.addEventListener('pointerleave', stopMove);
+        };
+        bindPad('u', 0, -1); bindPad('d', 0, 1); bindPad('l', -1, 0); bindPad('r', 1, 0);
+
+        window.addEventListener('keydown', (e) => {
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+            if(e.code==='ArrowUp') movePlayer(0,-1);
+            if(e.code==='ArrowDown') movePlayer(0,1);
+            if(e.code==='ArrowLeft') movePlayer(-1,0);
+            if(e.code==='ArrowRight') movePlayer(1,0);
+        });
+
+        let particles = [];
+        function createConfetti() {
+            particles = [];
+            for(let i=0; i<150; i++) {
+                particles.push({
+                    x: Math.random()*canvas.width, y: Math.random()*canvas.height - canvas.height,
+                    size: Math.random()*6+2, color: `hsl(${Math.random()*360}, 70%, 60%)`, v: Math.random()*3+2
+                });
+            }
+        }
         function animateWin() {
+            if (gameState !== 'WON') return;
             ctx.fillStyle = "rgba(0,0,0,0.1)";
             ctx.fillRect(0,0,canvas.width, canvas.height);
             
-            // 迷路の全容をうっすら表示
             ctx.globalAlpha = 0.2;
             for(let y=0; y<rows; y++) {
                 for(let x=0; x<cols; x++) {
@@ -253,65 +345,26 @@
             requestAnimationFrame(animateWin);
         }
 
-        function movePlayer(dx, dy) {
-            if (isGameOver) return;
-            let nx = player.x + dx, ny = player.y + dy;
-            if (maze[ny][nx] === 0) {
-                player.x = nx; player.y = ny;
-                updateDiscovery();
-                draw();
-                if (player.x === goal.x && player.y === goal.y) {
-                    isGameOver = true;
-                    messageEl.innerText = "🚩 MISSION COMPLETE!";
-                    createConfetti();
-                    animateWin();
-                }
-            }
-        }
-
-        // コントローラー
-        const bind = (id, dx, dy) => {
-            const el = document.getElementById(id);
-            const handler = (e) => { e.preventDefault(); movePlayer(dx, dy); };
-            el.addEventListener('pointerdown', handler);
-        };
-        bind('u', 0, -1); bind('d', 0, 1); bind('l', -1, 0); bind('r', 1, 0);
-
-        window.addEventListener('keydown', (e) => {
-            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
-            if(e.code==='ArrowUp') movePlayer(0,-1);
-            if(e.code==='ArrowDown') movePlayer(0,1);
-            if(e.code==='ArrowLeft') movePlayer(-1,0);
-            if(e.code==='ArrowRight') movePlayer(1,0);
-        });
-
         function setup() {
-            isGameOver = false;
+            gameState = 'PLAYING';
+            resetBtn.style.display = 'none';
             messageEl.innerText = "";
             initGameData();
             generateMaze(1, 1);
-            updateDiscovery();
-            draw();
+            placeItems();
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
         }
 
-        function resetGame() {
+        function levelUpGame() {
             player.x = 1; player.y = 1;
-            updateDiscovery();
-            draw();
+            cols += 40; rows += 40;
+            goal.x = cols - 2; goal.y = rows - 2;
             setup();
         }
 
-        resetBtn.addEventListener('click', resetGame);
+        resetBtn.addEventListener('click', levelUpGame);
         setup();
-
-        let lastTouchEnd = 0;
-        document.addEventListener('touchend', (event) => {
-            const now = (new Date()).getTime();
-            if (now - lastTouchEnd <= 300) {
-                event.preventDefault(); // 0.3秒以内の連続タップを無視
-            }
-            lastTouchEnd = now;
-        }, false);
     </script>
 </body>
 </html>
