@@ -106,6 +106,21 @@
             STAR:    { color: '#800080', symbol: '✨', name: '星の砂', desc: '3秒間、周囲の視界が大きく広がる！' }
         };
 
+        // iPhoneのダブルタップズーム防止処理
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = window.performance.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+        
+        // ダブルクリックイベントも防止
+        document.addEventListener('dblclick', (event) => {
+            event.preventDefault();
+        }, { passive: false });
+
         function showMessage(text, color = "#2ecc71") {
             messageEl.style.color = color;
             messageEl.innerText = text;
