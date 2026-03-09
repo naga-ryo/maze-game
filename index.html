@@ -6,7 +6,6 @@
     <title>MAZE</title>
     <style>
         * {
-            /* iOSでの不要なズームやハイライトを防止 */
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
             user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -17,11 +16,10 @@
             color: #eee;
             display: flex; flex-direction: column; align-items: center;
             margin: 0; padding: 10px;
-            overscroll-behavior: none; /* スワイプによるリロード防止 */
+            overscroll-behavior: none;
         }
-        h1 { color: #f1c40f; margin-bottom: 5px; font-size: 24px; }
-        p { color: #888; margin-bottom: 5px; font-size: 14px; text-align: center; }
-        .legend { font-size: 12px; color: #ccc; margin-bottom: 10px; }
+        h1 { color: #f1c40f; margin: 0; margin-bottom: 5px; font-size: 24px; }
+        .legend { font-size: 11px; color: #ccc; margin-bottom: 10px; line-height: 1.6; text-align: center;}
         #game-container {
             position: relative; width: 95%; max-width: 60dvh; height: auto;
             background-color: #000; padding: 5px; border: 2px solid #333; border-radius: 8px;
@@ -33,19 +31,22 @@
         }
         .d-pad {
             display: grid; grid-template-columns: repeat(3, 60px);
-            grid-template-rows: repeat(2, 60px); gap: 10px;
+            grid-template-rows: repeat(3, 60px); gap: 10px;
         }
         .btn {
             width: 60px; height: 60px; background: #222; border: 1px solid #444; border-radius: 12px;
             color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center;
-            user-select: none; cursor: pointer; -webkit-user-select: none; -webkit-touch-callout: none;
+            cursor: pointer;
         }
         .btn:active { background: #444; transform: scale(0.95); }
-        .up { grid-column: 2; } .left { grid-column: 1; grid-row: 2; }
-        .down { grid-column: 2; grid-row: 2; } .right { grid-column: 3; grid-row: 2; }
+        .up { grid-column: 2; grid-row: 1; } 
+        .left { grid-column: 1; grid-row: 2; }
+        .action { grid-column: 2; grid-row: 2; font-size: 14px; flex-direction: column; background: #34495e;} 
+        .right { grid-column: 3; grid-row: 2; }
+        .down { grid-column: 2; grid-row: 3; }
         
-        #message { margin-top: 5px; font-size: 18px; font-weight: bold; color: #2ecc71; height: 25px; transition: 0.3s; }
-        button {
+        #message { margin-top: 5px; font-size: 16px; font-weight: bold; height: 25px; transition: 0.3s; text-align: center;}
+        button.action-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 12px 24px; font-size: 16px; font-weight: bold;
             color: #000; background-color: #f1c40f; border: none; border-radius: 30px;
             cursor: pointer; box-shadow: 0 4px 0 #d35400; display: none;
@@ -55,26 +56,27 @@
 <body>
 
     <h1>MAZE</h1>
-    <p>アイテムを駆使してゴールを目指せ！</p>
     <div class="legend">
-        🟡太陽の雫(5秒全表示) / 🔵ランタン(視界+2) / 🟣星の砂(10秒視界拡大)
+        🟡太陽の雫(5秒全表示) / 🔵ランタン(視界+2) / 🟣星の砂(10秒視界拡張)<br>
+        🟠設置型ランタン / ⚫光食い(触れるとスタートに戻され5秒暗闇)
     </div>
 
     <div id="game-container">
         <canvas id="mazeCanvas"></canvas>
+        <button id="resetBtn" class="action-btn">さらに巨大な迷路に挑戦</button>
     </div>
 
     <div class="ui-panel">
         <div class="d-pad">
             <div class="btn up" id="u">▲</div>
             <div class="btn left" id="l">◀</div>
-            <div class="btn down" id="d">▼</div>
+            <div class="btn action" id="b">💡置く<br><span id="bCount">2</span></div>
             <div class="btn right" id="r">▶</div>
+            <div class="btn down" id="d">▼</div>
         </div>
     </div>
 
     <div id="message"></div>
-    <button id="resetBtn">さらに巨大な迷路に挑戦</button>
 
     <script>
         const canvas = document.getElementById('mazeCanvas');
@@ -87,36 +89,22 @@
         let baseLightRadius = 4;
         let currentLightRadius = baseLightRadius;
 
-        let maze = [], items = [];
+        let maze = [], items = [], enemies = [], placedBeacons = [];
         let player = { x: 1, y: 1 };
         let goal = { x: cols - 2, y: rows - 2 };
         
         let gameState = 'PLAYING'; 
-        let flareTimer = 0; // 太陽の雫の残り時間(ms)
-        let starTimer = 0;  // 星の砂の残り時間(ms)
-        let lastTime = 0;
-        let msgTimeout;
+        let flareTimer = 0, starTimer = 0, blindTimer = 0; 
+        let lastTime = 0, msgTimeout;
+        let enemyMoveAccumulator = 0;
+        let beaconCount = 2;
+        let animationId = null; // 【修正】ゲームループのID管理用
 
         const ITEM_TYPES = {
-            FLARE:   { color: '#f1c40f', symbol: '☀️', name: '太陽の雫', desc: '5秒間、迷路の全貌が見える！' },
-            LANTERN: { color: '#00cec9', symbol: '🔦', name: 'ランタン', desc: '視界が永続的に広がった！' },
-            STAR:    { color: '#9b59b6', symbol: '✨', name: '星の砂', desc: '10秒間、周囲の視界が大きく広がる！' }
+            FLARE:   { color: '#cece00', symbol: '☀️', name: '太陽の雫', desc: '5秒間、迷路の全貌が見える！' },
+            LANTERN: { color: '#0000FF', symbol: '🔦', name: 'ランタン', desc: '視界が永続的に広がった！' },
+            STAR:    { color: '#800080', symbol: '✨', name: '星の砂', desc: '3秒間、周囲の視界が大きく広がる！' }
         };
-
-        // iPhoneのダブルタップズーム防止処理
-        let lastTouchEnd = 0;
-        document.addEventListener('touchend', (event) => {
-            const now = window.performance.now();
-            if (now - lastTouchEnd <= 300) {
-                event.preventDefault();
-            }
-            lastTouchEnd = now;
-        }, { passive: false });
-        
-        // ダブルクリックイベントも防止
-        document.addEventListener('dblclick', (event) => {
-            event.preventDefault();
-        }, { passive: false });
 
         function showMessage(text, color = "#2ecc71") {
             messageEl.style.color = color;
@@ -128,15 +116,17 @@
         function initGameData() {
             canvas.width = cols * cellSize;
             canvas.height = rows * cellSize;
-            maze = []; items = [];
+            maze = []; items = []; enemies = []; placedBeacons = [];
             currentLightRadius = baseLightRadius;
-            for (let y = 0; y < rows; y++) {
-                maze[y] = new Array(cols).fill(1);
-            }
+            
+            beaconCount = 2 + Math.floor((cols - 21) / 20); 
+            document.getElementById('bCount').innerText = beaconCount;
+            
+            blindTimer = 0; starTimer = 0; flareTimer = 0;
+            for (let y = 0; y < rows; y++) maze[y] = new Array(cols).fill(1);
         }
 
         function generateMaze(startX, startY) {
-            // 1. プリム法による生成
             maze[startY][startX] = 0;
             let wallList = [];
             const addWalls = (x, y) => {
@@ -164,43 +154,47 @@
             }
         }
 
-        function placeItems() {
-            let deadEnds = [];
+        function placeMapElements() {
+            let deadEnds = [], paths = [];
             for (let y = 1; y < rows - 1; y++) {
                 for (let x = 1; x < cols - 1; x++) {
                     if (maze[y][x] === 0 && (x !== 1 || y !== 1) && (x !== goal.x || y !== goal.y)) {
-                        let walls = 0;
-                        if (maze[y-1][x] === 1) walls++;
-                        if (maze[y+1][x] === 1) walls++;
-                        if (maze[y][x-1] === 1) walls++;
-                        if (maze[y][x+1] === 1) walls++;
+                        paths.push({x, y});
+                        let walls = (maze[y-1][x]===1?1:0) + (maze[y+1][x]===1?1:0) + (maze[y][x-1]===1?1:0) + (maze[y][x+1]===1?1:0);
                         if (walls >= 3) deadEnds.push({x, y});
                     }
                 }
             }
-            deadEnds.sort(() => Math.random() - 0.5);
-            let numItems = Math.min(deadEnds.length, Math.floor((cols + rows) / 10));
             
+            deadEnds.sort(() => Math.random() - 0.5);
+            let numItems = Math.min(deadEnds.length, Math.floor((cols + rows) / 8));
             const types = Object.keys(ITEM_TYPES);
             for (let i = 0; i < numItems; i++) {
-                let type = types[Math.floor(Math.random() * types.length)];
-                items.push({ x: deadEnds[i].x, y: deadEnds[i].y, type: type });
+                items.push({ x: deadEnds[i].x, y: deadEnds[i].y, type: types[Math.floor(Math.random() * types.length)] });
+            }
+
+            let numEnemies =  1 + Math.floor((cols - 21) / 20);
+            let farPaths = paths.filter(p => p.x > cols/3 && p.y > rows/3);
+            farPaths.sort(() => Math.random() - 0.5);
+            for(let i=0; i<numEnemies; i++) {
+                if(farPaths[i]) {
+                    enemies.push({ x: farPaths[i].x, y: farPaths[i].y, lx: -1, ly: -1 });
+                }
             }
         }
 
         function draw() {
-            // 全体を黒で塗りつぶす（離れた道は真っ黒に戻る）
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             let isFlareActive = flareTimer > 0;
-            // 星の砂が有効な場合は視界を一時的に拡張
-            let effectiveRadius = currentLightRadius + (starTimer > 0 ? 6 : 0);
+            let effectiveRadius = blindTimer > 0 ? 1 : currentLightRadius + (starTimer > 0 ? 6 : 0);
+            let isBeaconLit = (x, y) => placedBeacons.some(b => (b.x - x)**2 + (b.y - y)**2 <= 16);
 
             for (let y = 0; y < rows; y++) {
                 for (let x = 0; x < cols; x++) {
                     let distSq = (x - player.x)**2 + (y - player.y)**2;
-                    let isVisible = isFlareActive || (distSq <= effectiveRadius * effectiveRadius);
+                    let isVisible = isFlareActive || (distSq <= effectiveRadius * effectiveRadius) || isBeaconLit(x, y);
 
                     if (isVisible) {
                         ctx.fillStyle = maze[y][x] === 1 ? "#34495e" : "#ecf0f1";
@@ -209,14 +203,22 @@
                 }
             }
 
-            // ゴールは常に表示
             ctx.fillStyle = "#2ecc71";
             ctx.fillRect(goal.x * cellSize, goal.y * cellSize, cellSize, cellSize);
 
-            // アイテムの描画
+            placedBeacons.forEach(b => {
+                let isVis = isFlareActive || ((b.x - player.x)**2 + (b.y - player.y)**2 <= effectiveRadius**2) || isBeaconLit(b.x, b.y);
+                if(isVis) {
+                    ctx.fillStyle = "#FFA500"; 
+                    ctx.beginPath();
+                    ctx.arc(b.x * cellSize + cellSize/2, b.y * cellSize + cellSize/2, cellSize/4, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            });
+
             items.forEach(item => {
-                let distSq = (item.x - player.x)**2 + (item.y - player.y)**2;
-                if (isFlareActive || distSq <= effectiveRadius * effectiveRadius) {
+                let isVis = isFlareActive || ((item.x - player.x)**2 + (item.y - player.y)**2 <= effectiveRadius**2) || isBeaconLit(item.x, item.y);
+                if (isVis) {
                     ctx.fillStyle = ITEM_TYPES[item.type].color;
                     ctx.beginPath();
                     ctx.arc(item.x * cellSize + cellSize/2, item.y * cellSize + cellSize/2, cellSize/3, 0, Math.PI*2);
@@ -224,15 +226,23 @@
                 }
             });
 
-            // プレイヤーの描画
-            ctx.fillStyle = "#e74c3c";
+            enemies.forEach(e => {
+                let isVis = isFlareActive || ((e.x - player.x)**2 + (e.y - player.y)**2 <= effectiveRadius**2) || isBeaconLit(e.x, e.y);
+                if(isVis) {
+                    ctx.fillStyle = "#000000"; 
+                    ctx.beginPath();
+                    ctx.arc(e.x * cellSize + cellSize/2, e.y * cellSize + cellSize/2, cellSize/2.5, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            });
+
+            ctx.fillStyle = blindTimer > 0 ? "#7f8c8d" : "#e74c3c";
             ctx.beginPath();
             ctx.arc(player.x * cellSize + cellSize/2, player.y * cellSize + cellSize/2, cellSize/2.5, 0, Math.PI*2);
             ctx.fill();
 
-            // 太陽の雫エフェクト
             if (isFlareActive) {
-                ctx.strokeStyle = "rgba(241, 196, 15, 0.5)";
+                ctx.strokeStyle = "rgba(255, 255, 0, 0.4)";
                 ctx.lineWidth = 10;
                 ctx.strokeRect(0, 0, canvas.width, canvas.height);
             }
@@ -243,17 +253,37 @@
             let dt = timestamp - lastTime;
             lastTime = timestamp;
 
+            // 高速移動バグを防ぐために最大でも50msでキャップ（丸め）する
+            if (dt > 50) dt = 16; 
+
             if (gameState === 'PLAYING') {
-                if (flareTimer > 0) {
-                    flareTimer -= dt;
-                    if (flareTimer < 0) flareTimer = 0;
+                if (flareTimer > 0) flareTimer = Math.max(0, flareTimer - dt);
+                if (starTimer > 0) starTimer = Math.max(0, starTimer - dt);
+                if (blindTimer > 0) blindTimer = Math.max(0, blindTimer - dt);
+
+                enemyMoveAccumulator += dt;
+                if(enemyMoveAccumulator > 500) {
+                    enemyMoveAccumulator -= 500;
+                    enemies.forEach(e => {
+                        let dirs = [{dx:0,dy:-1}, {dx:0,dy:1}, {dx:-1,dy:0}, {dx:1,dy:0}];
+                        let validDirs = dirs.filter(d => maze[e.y+d.dy] && maze[e.y+d.dy][e.x+d.dx] === 0);
+                        
+                        let forwardDirs = validDirs.filter(d => !(e.x + d.dx === e.lx && e.y + d.dy === e.ly));
+                        let chosenDirs = forwardDirs.length > 0 ? forwardDirs : validDirs;
+
+                        if(chosenDirs.length > 0) {
+                            let d = chosenDirs[Math.floor(Math.random()*chosenDirs.length)];
+                            e.lx = e.x; 
+                            e.ly = e.y;
+                            e.x += d.dx; 
+                            e.y += d.dy;
+                        }
+                    });
+                    checkEnemyCollision();
                 }
-                if (starTimer > 0) {
-                    starTimer -= dt;
-                    if (starTimer < 0) starTimer = 0;
-                }
+
                 draw();
-                requestAnimationFrame(gameLoop);
+                animationId = requestAnimationFrame(gameLoop);
             }
         }
 
@@ -264,11 +294,32 @@
                 let info = ITEM_TYPES[item.type];
                 
                 if (item.type === 'FLARE') flareTimer = 5000;
-                else if (item.type === 'LANTERN') { currentLightRadius += 2; }
-                else if (item.type === 'STAR') { starTimer = 10000; }
+                else if (item.type === 'LANTERN') currentLightRadius += 2;
+                else if (item.type === 'STAR') starTimer = 10000;
 
                 showMessage(`${info.symbol} ${info.name}: ${info.desc}`, info.color);
                 items.splice(index, 1);
+            }
+        }
+
+        function checkEnemyCollision() {
+            let hit = enemies.some(e => e.x === player.x && e.y === player.y);
+            if (hit) {
+                currentLightRadius = baseLightRadius;
+                blindTimer = 5000;
+                player.x = 1; 
+                player.y = 1; 
+                showMessage("⚫ スタートに戻され、視界を奪われた！", "#e74c3c");
+                if(moveInterval !== null) { clearInterval(moveInterval); moveInterval = null; }
+            }
+        }
+
+        function placeBeacon() {
+            if (beaconCount > 0 && gameState === 'PLAYING') {
+                beaconCount--;
+                placedBeacons.push({x: player.x, y: player.y});
+                showMessage("💡 ランタンを設置した！", "#FFA500");
+                document.getElementById('bCount').innerText = beaconCount;
             }
         }
 
@@ -279,9 +330,13 @@
             if (maze[ny] && maze[ny][nx] === 0) {
                 player.x = nx; player.y = ny;
                 checkItem(nx, ny);
+                checkEnemyCollision();
 
                 if (player.x === goal.x && player.y === goal.y) {
                     gameState = 'WON';
+                    // 【修正】ゴール到達と同時に移動のタイマーを強制解除（暴走防止）
+                    if (moveInterval !== null) { clearInterval(moveInterval); moveInterval = null; }
+                    
                     showMessage("🚩 MISSION COMPLETE!");
                     resetBtn.style.display = 'block';
                     createConfetti();
@@ -290,54 +345,40 @@
             }
         }
 
-        let moveInterval = null; // 現在の移動タイマー
+        let moveInterval = null;
+
+        // 【修正】不要な多重登録を防ぐため、イベントリスナーを外に出して一本化
+        const stopGlobalMove = () => {
+            if (moveInterval !== null) { clearInterval(moveInterval); moveInterval = null; }
+        };
+        window.addEventListener('pointerup', stopGlobalMove);
+        window.addEventListener('pointercancel', stopGlobalMove);
 
         const bindPad = (id, dx, dy) => {
             const el = document.getElementById(id);
-
             const startMove = (e) => {
                 e.preventDefault();
-                
-                // 【重要】すでに移動中（タイマー稼働中）なら何もしない
                 if (moveInterval !== null) return;
-
-                // 最初の1歩
                 movePlayer(dx, dy);
-
-                // 連続移動の開始
-                moveInterval = setInterval(() => {
-                    movePlayer(dx, dy);
-                }, 120);
+                moveInterval = setInterval(() => movePlayer(dx, dy), 120);
             };
-
-            const stopMove = (e) => {
-                if (moveInterval !== null) {
-                    clearInterval(moveInterval);
-                    moveInterval = null; // 状態をリセット
-                }
-            };
-
-            // 指が触れたとき
             el.addEventListener('pointerdown', startMove);
-            
-            // 指が離れたとき、またはボタンの外に指が出たとき
-            el.addEventListener('pointerup', stopMove);
-            el.addEventListener('pointerleave', stopMove);
-            el.addEventListener('pointercancel', stopMove);
+            el.addEventListener('pointerleave', stopGlobalMove); // 指がボタン外に出た場合
         };
 
-        // 全てのボタンに紐付け
-        bindPad('u', 0, -1);
-        bindPad('d', 0, 1);
-        bindPad('l', -1, 0);
-        bindPad('r', 1, 0);
+        bindPad('u', 0, -1); bindPad('d', 0, 1); bindPad('l', -1, 0); bindPad('r', 1, 0);
+
+        document.getElementById('b').addEventListener('pointerdown', (e) => {
+            e.preventDefault(); placeBeacon();
+        });
 
         window.addEventListener('keydown', (e) => {
-            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
             if(e.code==='ArrowUp') movePlayer(0,-1);
             if(e.code==='ArrowDown') movePlayer(0,1);
             if(e.code==='ArrowLeft') movePlayer(-1,0);
             if(e.code==='ArrowRight') movePlayer(1,0);
+            if(e.code==='Space') placeBeacon();
         });
 
         let particles = [];
@@ -379,12 +420,18 @@
             messageEl.innerText = "";
             initGameData();
             generateMaze(1, 1);
-            placeItems();
+            placeMapElements();
             lastTime = performance.now();
-            requestAnimationFrame(gameLoop);
+            
+            // 【修正】ループの多重発火を防ぐため、古いアニメーションを必ずキャンセル
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = requestAnimationFrame(gameLoop);
         }
 
         function levelUpGame() {
+            // リセットの多重実行を防ぐガード
+            if (gameState === 'PLAYING') return; 
+
             player.x = 1; player.y = 1;
             cols += 20; rows += 20;
             goal.x = cols - 2; goal.y = rows - 2;
