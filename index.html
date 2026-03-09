@@ -37,7 +37,7 @@
         .btn {
             width: 60px; height: 60px; background: #222; border: 1px solid #444; border-radius: 12px;
             color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center;
-            user-select: none; cursor: pointer;
+            user-select: none; cursor: pointer; -webkit-user-select: none; -webkit-touch-callout: none;
         }
         .btn:active { background: #444; transform: scale(0.95); }
         .up { grid-column: 2; } .left { grid-column: 1; grid-row: 2; }
@@ -48,7 +48,6 @@
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 12px 24px; font-size: 16px; font-weight: bold;
             color: #000; background-color: #f1c40f; border: none; border-radius: 30px;
             cursor: pointer; box-shadow: 0 4px 0 #d35400; display: none;
-            user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
         }
     </style>
 </head>
