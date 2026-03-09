@@ -47,7 +47,7 @@
         button {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 12px 24px; font-size: 16px; font-weight: bold;
             color: #000; background-color: #f1c40f; border: none; border-radius: 30px;
-            cursor: pointer; box-shadow: 0 4px 0 #d35400; display: none;
+            cursor: pointer; box-shadow: 0 4px 0 #d35400; display: none; user-select: none;
         }
     </style>
 </head>
@@ -289,20 +289,47 @@
             }
         }
 
-        let moveInterval = null;
+        let moveInterval = null; // 現在の移動タイマー
+
         const bindPad = (id, dx, dy) => {
             const el = document.getElementById(id);
+
             const startMove = (e) => {
                 e.preventDefault();
+                
+                // 【重要】すでに移動中（タイマー稼働中）なら何もしない
+                if (moveInterval !== null) return;
+
+                // 最初の1歩
                 movePlayer(dx, dy);
-                moveInterval = setInterval(() => movePlayer(dx, dy), 120);
+
+                // 連続移動の開始
+                moveInterval = setInterval(() => {
+                    movePlayer(dx, dy);
+                }, 120);
             };
-            const stopMove = () => clearInterval(moveInterval);
+
+            const stopMove = (e) => {
+                if (moveInterval !== null) {
+                    clearInterval(moveInterval);
+                    moveInterval = null; // 状態をリセット
+                }
+            };
+
+            // 指が触れたとき
             el.addEventListener('pointerdown', startMove);
-            window.addEventListener('pointerup', stopMove);
+            
+            // 指が離れたとき、またはボタンの外に指が出たとき
+            el.addEventListener('pointerup', stopMove);
             el.addEventListener('pointerleave', stopMove);
+            el.addEventListener('pointercancel', stopMove);
         };
-        bindPad('u', 0, -1); bindPad('d', 0, 1); bindPad('l', -1, 0); bindPad('r', 1, 0);
+
+        // 全てのボタンに紐付け
+        bindPad('u', 0, -1);
+        bindPad('d', 0, 1);
+        bindPad('l', -1, 0);
+        bindPad('r', 1, 0);
 
         window.addEventListener('keydown', (e) => {
             if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
@@ -358,7 +385,7 @@
 
         function levelUpGame() {
             player.x = 1; player.y = 1;
-            cols += 40; rows += 40;
+            cols += 20; rows += 20;
             goal.x = cols - 2; goal.y = rows - 2;
             setup();
         }
