@@ -57,8 +57,8 @@
 
     <h1>MAZE</h1>
     <div class="legend">
-        🟡太陽の雫(5秒全表示) / 🔵ランタン(視界+2) / 🟣星の砂(10秒視界拡張)<br>
-        🟠設置型ランタン / ⚫光食い(触れるとスタートに戻され5秒暗闇)
+        🟡太陽の雫(5秒全表示) / 🔵ランタン(視界+2) / 🟣星の砂(3秒視界拡張)<br>
+        🟠設置型ランタン(敵侵入不可) / ⚫️光食い(触れるとスタートに戻され5秒暗闇)
     </div>
 
     <div id="game-container">
@@ -93,12 +93,15 @@
         let player = { x: 1, y: 1 };
         let goal = { x: cols - 2, y: rows - 2 };
         
+        // 設置型ランタンの光の範囲かどうかを判定するグローバル関数
+        const isBeaconLit = (x, y) => placedBeacons.some(b => (b.x - x)**2 + (b.y - y)**2 <= 16);
+        
         let gameState = 'PLAYING'; 
         let flareTimer = 0, starTimer = 0, blindTimer = 0; 
         let lastTime = 0, msgTimeout;
         let enemyMoveAccumulator = 0;
         let beaconCount = 2;
-        let animationId = null; // 【修正】ゲームループのID管理用
+        let animationId = null;
 
         const ITEM_TYPES = {
             FLARE:   { color: '#cece00', symbol: '☀️', name: '太陽の雫', desc: '5秒間、迷路の全貌が見える！' },
@@ -134,7 +137,7 @@
             maze = []; items = []; enemies = []; placedBeacons = [];
             currentLightRadius = baseLightRadius;
             
-            beaconCount = 2 + Math.floor((cols - 21) / 20); 
+            beaconCount = Math.floor((cols * rows) / 400) + 1; 
             document.getElementById('bCount').innerText = beaconCount;
             
             blindTimer = 0; starTimer = 0; flareTimer = 0;
@@ -182,18 +185,40 @@
             }
             
             deadEnds.sort(() => Math.random() - 0.5);
-            let numItems = Math.min(deadEnds.length, Math.floor((cols + rows) / 8));
+            let numItems = Math.min(deadEnds.length, Math.max(Math.floor((cols + rows) / 8),Math.max(1, Math.floor((cols * rows) / 250))));
             const types = Object.keys(ITEM_TYPES);
             for (let i = 0; i < numItems; i++) {
                 items.push({ x: deadEnds[i].x, y: deadEnds[i].y, type: types[Math.floor(Math.random() * types.length)] });
             }
 
-            let numEnemies =  1 + Math.floor((cols - 21) / 20);
-            let farPaths = paths.filter(p => p.x > cols/3 && p.y > rows/3);
-            farPaths.sort(() => Math.random() - 0.5);
+            let numEnemies = Math.max(1, Math.floor((cols * rows) / 250));
+            
+            // 【修正箇所】スタート周辺だけを避け、迷路全体からランダムにばらけさせる
+            let safeZoneRadius = Math.floor(cols / 4);
+            let validPaths = paths.filter(p => (p.x + p.y) > safeZoneRadius);
+            validPaths.sort(() => Math.random() - 0.5);
+
+            let minDist = Math.floor(cols / 4); // 他の敵と最低限離す距離
+
             for(let i=0; i<numEnemies; i++) {
-                if(farPaths[i]) {
-                    enemies.push({ x: farPaths[i].x, y: farPaths[i].y, lx: -1, ly: -1 });
+                let placed = false;
+                // 距離が minDist 以上離れている場所を探す
+                for (let j = 0; j < validPaths.length; j++) {
+                    let p = validPaths[j];
+                    let isFarEnough = enemies.every(e => Math.hypot(e.x - p.x, e.y - p.y) >= minDist);
+                    
+                    if (isFarEnough) {
+                        enemies.push({ x: p.x, y: p.y, lx: -1, ly: -1 });
+                        validPaths.splice(j, 1); // 選んだ場所を候補から消す
+                        placed = true;
+                        break;
+                    }
+                }
+                
+                // 万が一、距離を離しすぎて置ける場所がなくなった場合の妥協策
+                if (!placed && validPaths.length > 0) {
+                    let p = validPaths.shift();
+                    enemies.push({ x: p.x, y: p.y, lx: -1, ly: -1 });
                 }
             }
         }
@@ -204,15 +229,19 @@
 
             let isFlareActive = flareTimer > 0;
             let effectiveRadius = blindTimer > 0 ? 1 : currentLightRadius + (starTimer > 0 ? 6 : 0);
-            let isBeaconLit = (x, y) => placedBeacons.some(b => (b.x - x)**2 + (b.y - y)**2 <= 16);
 
             for (let y = 0; y < rows; y++) {
                 for (let x = 0; x < cols; x++) {
                     let distSq = (x - player.x)**2 + (y - player.y)**2;
-                    let isVisible = isFlareActive || (distSq <= effectiveRadius * effectiveRadius) || isBeaconLit(x, y);
+                    let cellBeaconLit = isBeaconLit(x, y);
+                    let isVisible = isFlareActive || (distSq <= effectiveRadius * effectiveRadius) || cellBeaconLit;
 
                     if (isVisible) {
-                        ctx.fillStyle = maze[y][x] === 1 ? "#34495e" : "#ecf0f1";
+                        if (maze[y][x] === 1) {
+                            ctx.fillStyle = cellBeaconLit ? "#6e5c47" : "#34495e";
+                        } else {
+                            ctx.fillStyle = cellBeaconLit ? "#fae5d3" : "#ecf0f1";
+                        }
                         ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
                     }
                 }
@@ -268,7 +297,6 @@
             let dt = timestamp - lastTime;
             lastTime = timestamp;
 
-            // 高速移動バグを防ぐために最大でも50msでキャップ（丸め）する
             if (dt > 50) dt = 16; 
 
             if (gameState === 'PLAYING') {
@@ -281,7 +309,11 @@
                     enemyMoveAccumulator -= 500;
                     enemies.forEach(e => {
                         let dirs = [{dx:0,dy:-1}, {dx:0,dy:1}, {dx:-1,dy:0}, {dx:1,dy:0}];
-                        let validDirs = dirs.filter(d => maze[e.y+d.dy] && maze[e.y+d.dy][e.x+d.dx] === 0);
+                        
+                        let validDirs = dirs.filter(d => {
+                            let nx = e.x + d.dx, ny = e.y + d.dy;
+                            return maze[ny] && maze[ny][nx] === 0 && !isBeaconLit(nx, ny);
+                        });
                         
                         let forwardDirs = validDirs.filter(d => !(e.x + d.dx === e.lx && e.y + d.dy === e.ly));
                         let chosenDirs = forwardDirs.length > 0 ? forwardDirs : validDirs;
@@ -324,7 +356,7 @@
                 blindTimer = 5000;
                 player.x = 1; 
                 player.y = 1; 
-                showMessage("⚫ スタートに戻され、視界を奪われた！", "#e74c3c");
+                showMessage("⚫️ スタートに戻され、視界を奪われた！", "#e74c3c");
                 if(moveInterval !== null) { clearInterval(moveInterval); moveInterval = null; }
             }
         }
@@ -333,6 +365,39 @@
             if (beaconCount > 0 && gameState === 'PLAYING') {
                 beaconCount--;
                 placedBeacons.push({x: player.x, y: player.y});
+
+                enemies.forEach(e => {
+                    if (isBeaconLit(e.x, e.y)) {
+                        let queue = [{x: e.x, y: e.y}];
+                        let visited = new Set();
+                        visited.add(`${e.x},${e.y}`);
+                        
+                        while(queue.length > 0) {
+                            let curr = queue.shift();
+                            
+                            if (maze[curr.y] && maze[curr.y][curr.x] === 0 && !isBeaconLit(curr.x, curr.y) && !(curr.x === player.x && curr.y === player.y)) {
+                                e.x = curr.x;
+                                e.y = curr.y;
+                                e.lx = curr.x; 
+                                e.ly = curr.y;
+                                break;
+                            }
+                            
+                            let dirs = [{dx:0,dy:-1}, {dx:0,dy:1}, {dx:-1,dy:0}, {dx:1,dy:0}];
+                            for (let d of dirs) {
+                                let nx = curr.x + d.dx;
+                                let ny = curr.y + d.dy;
+                                if (maze[ny] && maze[ny][nx] !== undefined) {
+                                    if (!visited.has(`${nx},${ny}`)) {
+                                        visited.add(`${nx},${ny}`);
+                                        queue.push({x: nx, y: ny});
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
                 showMessage("💡 ランタンを設置した！", "#FFA500");
                 document.getElementById('bCount').innerText = beaconCount;
             }
@@ -349,7 +414,6 @@
 
                 if (player.x === goal.x && player.y === goal.y) {
                     gameState = 'WON';
-                    // 【修正】ゴール到達と同時に移動のタイマーを強制解除（暴走防止）
                     if (moveInterval !== null) { clearInterval(moveInterval); moveInterval = null; }
                     
                     showMessage("🚩 MISSION COMPLETE!");
@@ -362,7 +426,6 @@
 
         let moveInterval = null;
 
-        // 【修正】不要な多重登録を防ぐため、イベントリスナーを外に出して一本化
         const stopGlobalMove = () => {
             if (moveInterval !== null) { clearInterval(moveInterval); moveInterval = null; }
         };
@@ -378,7 +441,7 @@
                 moveInterval = setInterval(() => movePlayer(dx, dy), 120);
             };
             el.addEventListener('pointerdown', startMove);
-            el.addEventListener('pointerleave', stopGlobalMove); // 指がボタン外に出た場合
+            el.addEventListener('pointerleave', stopGlobalMove); 
         };
 
         bindPad('u', 0, -1); bindPad('d', 0, 1); bindPad('l', -1, 0); bindPad('r', 1, 0);
@@ -438,13 +501,11 @@
             placeMapElements();
             lastTime = performance.now();
             
-            // 【修正】ループの多重発火を防ぐため、古いアニメーションを必ずキャンセル
             if (animationId) cancelAnimationFrame(animationId);
             animationId = requestAnimationFrame(gameLoop);
         }
 
         function levelUpGame() {
-            // リセットの多重実行を防ぐガード
             if (gameState === 'PLAYING') return; 
 
             player.x = 1; player.y = 1;
